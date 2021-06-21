@@ -1,5 +1,6 @@
 package io.eventuate.local.common;
 
+import brave.Tracing;
 import io.eventuate.cdc.producer.wrappers.DataProducer;
 import io.eventuate.cdc.producer.wrappers.DataProducerFactory;
 import io.eventuate.common.eventuate.local.BinLogEvent;
@@ -31,16 +32,19 @@ public class CdcDataPublisher<EVENT extends BinLogEvent> {
   private AtomicLong timeOfLastProcessedEvent = new AtomicLong(0);
   private AtomicInteger totallyProcessedEvents = new AtomicInteger(0);
   private long sendTimeAccumulator = 0;
+  private final Tracing tracing;
 
   public CdcDataPublisher(DataProducerFactory dataProducerFactory,
                           PublishingFilter publishingFilter,
                           PublishingStrategy<EVENT> publishingStrategy,
-                          MeterRegistry meterRegistry) {
+                          MeterRegistry meterRegistry,
+                          Tracing tracing) {
 
     this.dataProducerFactory = dataProducerFactory;
     this.publishingStrategy = publishingStrategy;
     this.publishingFilter = publishingFilter;
     this.meterRegistry = meterRegistry;
+    this.tracing = tracing;
     initMetrics();
   }
 
@@ -119,6 +123,8 @@ public class CdcDataPublisher<EVENT extends BinLogEvent> {
                 result.completeExceptionally(throwable);
               }
               else {
+                logger.info("[lxm] get metadata{}", o);
+                logger.info("[lxm] publishedEvent = {}", json);
                 result.complete(o);
                 timeOfLastProcessedEvent.set(System.nanoTime());
                 totallyProcessedEvents.incrementAndGet();

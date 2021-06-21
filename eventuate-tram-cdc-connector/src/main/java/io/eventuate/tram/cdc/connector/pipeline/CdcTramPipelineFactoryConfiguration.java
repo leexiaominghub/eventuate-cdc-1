@@ -1,5 +1,6 @@
 package io.eventuate.tram.cdc.connector.pipeline;
 
+import brave.Tracing;
 import io.eventuate.cdc.producer.wrappers.DataProducerFactory;
 import io.eventuate.common.id.DatabaseIdGenerator;
 import io.eventuate.common.spring.jdbc.sqldialect.SqlDialectConfiguration;
@@ -21,14 +22,16 @@ public class CdcTramPipelineFactoryConfiguration {
   public CdcPipelineFactory cdcPipelineFactory(DataProducerFactory dataProducerFactory,
                                                PublishingFilter publishingFilter,
                                                BinlogEntryReaderProvider binlogEntryReaderProvider,
-                                               MeterRegistry meterRegistry) {
+                                               MeterRegistry meterRegistry,
+                                               Tracing tracing) {
 
     return new CdcPipelineFactory<>("eventuate-tram",
             binlogEntryReaderProvider,
             new CdcDataPublisher<>(dataProducerFactory,
                     publishingFilter,
                     new MessageWithDestinationPublishingStrategy(),
-                    meterRegistry),
+                    meterRegistry,
+                    tracing),
             outboxId -> new BinlogEntryToMessageConverter(new DatabaseIdGenerator(outboxId)));
   }
 }
