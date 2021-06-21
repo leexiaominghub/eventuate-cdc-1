@@ -34,3 +34,4 @@ public class DefaultTramCdcPipelineFactoryConfiguration {
                     tracing),
             outboxId -> new BinlogEntryToMessageConverter(new DatabaseIdGenerator(outboxId)));
   }
+}

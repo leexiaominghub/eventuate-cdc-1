@@ -124,7 +124,7 @@ public class CdcDataPublisher<EVENT extends BinLogEvent> {
               }
               else {
                 logger.info("[lxm] get metadata{}", o);
-                logger.info("[lxm] publishedEvent = {}", json);
+                logger.info("[lxm] publishedEvent json = {}", json);
                 result.complete(o);
                 timeOfLastProcessedEvent.set(System.nanoTime());
                 totallyProcessedEvents.incrementAndGet();
