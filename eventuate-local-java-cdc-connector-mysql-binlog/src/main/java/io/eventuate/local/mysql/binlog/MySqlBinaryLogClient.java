@@ -298,7 +298,6 @@ public class MySqlBinaryLogClient extends DbLogClient {
       rowsToSkip--;
       return;
     }
-    logger.debug("[lxm] Got event {}", event);
 
     WriteRowsEventData eventData = event.getData();
 
