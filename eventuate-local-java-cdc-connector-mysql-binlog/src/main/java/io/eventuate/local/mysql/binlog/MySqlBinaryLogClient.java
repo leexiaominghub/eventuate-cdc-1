@@ -13,14 +13,17 @@ import io.eventuate.local.common.*;
 import io.eventuate.local.db.log.common.DbLogClient;
 import io.eventuate.local.db.log.common.OffsetKafkaStore;
 import io.eventuate.local.db.log.common.OffsetStore;
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 
 import javax.sql.DataSource;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -56,6 +59,8 @@ public class MySqlBinaryLogClient extends DbLogClient {
   private AtomicLong timeOfFirstMessage = new AtomicLong();
   private AtomicLong timeOfLatestMessage = new AtomicLong();;
   private Timer messagePublishingTimer;
+  private Timer messageRealPublishingTimerLxm;
+  private DistributionSummary distributionSummaryRealTimeLxm;
   private BinaryLogClient.EventListener eventListener;
 
   public MySqlBinaryLogClient(MeterRegistry meterRegistry,
@@ -109,6 +114,8 @@ public class MySqlBinaryLogClient extends DbLogClient {
     meterRegistry.gauge("eventuate.cdc.mysql.event.latest.message.time", timeOfLatestMessage);
 
     messagePublishingTimer = meterRegistry.timer("eventuate.cdc.mysql.message.publishing.duration");
+    messageRealPublishingTimerLxm = meterRegistry.timer("eventuate.cdc.mysql.message.publishing.real.lxm.duration");
+    distributionSummaryRealTimeLxm = DistributionSummary.builder("eventuate.cdc.real.time.lxm").scale(100).register(meterRegistry);
   }
 
   public Long getEventProcessingStartTime() {
@@ -298,7 +305,6 @@ public class MySqlBinaryLogClient extends DbLogClient {
       rowsToSkip--;
       return;
     }
-    logger.debug("[lxm] Got event {}", event);
 
     WriteRowsEventData eventData = event.getData();
 
@@ -351,6 +357,8 @@ public class MySqlBinaryLogClient extends DbLogClient {
     publishingFuture.whenComplete((o, throwable) -> {
       if (throwable == null) {
         futureWithOffset.complete(binlogFileOffset);
+        messageRealPublishingTimerLxm.record(System.currentTimeMillis() - timeNow, TimeUnit.MILLISECONDS);
+        distributionSummaryRealTimeLxm.record(System.currentTimeMillis() - timeNow);
       }
       else {
         futureWithOffset.completeExceptionally(throwable);
