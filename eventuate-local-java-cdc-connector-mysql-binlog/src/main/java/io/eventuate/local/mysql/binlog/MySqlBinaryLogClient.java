@@ -1,6 +1,15 @@
 package io.eventuate.local.mysql.binlog;
 
 
+import brave.Span;
+import brave.Tracer;
+import brave.Tracing;
+import brave.propagation.Propagation;
+import brave.propagation.TraceContext;
+import brave.propagation.TraceContextOrSamplingFlags;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonMappingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shyiko.mysql.binlog.BinaryLogClient;
 import com.github.shyiko.mysql.binlog.event.*;
 import com.github.shyiko.mysql.binlog.event.deserialization.EventDeserializer;
@@ -63,6 +72,79 @@ public class MySqlBinaryLogClient extends DbLogClient {
   private DistributionSummary distributionSummaryRealTimeLxm;
   private BinaryLogClient.EventListener eventListener;
 
+  private Tracing tracing;
+  private Tracer tracer;
+  // 取得B3相关头部
+  private TraceContext.Extractor<HashMap<String, String>> extractor;
+  // 取得header各个字段,是上面提取者使用的工具
+  private Propagation.Getter<HashMap<String, String>, String> getter = new Propagation.Getter<HashMap<String, String>, String>() {
+    @Override
+    public String get(HashMap<String, String> map, String key) {
+      return map.get(key);
+  }};
+
+  // 用来解析headers
+  private ObjectMapper objectMapper = new ObjectMapper();
+
+  // 新建一个构造函数
+  public MySqlBinaryLogClient(MeterRegistry meterRegistry,
+                              String dbUserName,
+                              String dbPassword,
+                              String dataSourceUrl,
+                              DataSource dataSource,
+                              String readerName,
+                              Long uniqueId,
+                              int connectionTimeoutInMilliseconds,
+                              int maxAttemptsForBinlogConnection,
+                              OffsetStore offsetStore,
+                              Optional<DebeziumBinlogOffsetKafkaStore> debeziumBinlogOffsetKafkaStore,
+                              long replicationLagMeasuringIntervalInMilliseconds,
+                              int monitoringRetryIntervalInMilliseconds,
+                              int monitoringRetryAttempts,
+                              EventuateSchema monitoringSchema,
+                              Long outboxId,
+                              Tracing tracing) {
+
+    super(meterRegistry,
+            dbUserName,
+            dbPassword,
+            dataSourceUrl,
+            dataSource,
+            readerName,
+            replicationLagMeasuringIntervalInMilliseconds,
+            monitoringRetryIntervalInMilliseconds,
+            monitoringRetryAttempts,
+            monitoringSchema,
+            outboxId);
+
+    this.uniqueId = uniqueId;
+    this.connectionTimeoutInMilliseconds = connectionTimeoutInMilliseconds;
+    this.maxAttemptsForBinlogConnection = maxAttemptsForBinlogConnection;
+    this.offsetStore = offsetStore;
+    this.debeziumBinlogOffsetKafkaStore = debeziumBinlogOffsetKafkaStore;
+    this.tracing = tracing;
+    this.tracer = tracing.tracer();
+    this.extractor = tracing.propagation().extractor(getter);
+
+    timestampExtractor = new MySqlBinlogCdcMonitoringTimestampExtractor(dataSource);
+    mySqlBinlogEntryExtractor = new MySqlBinlogEntryExtractor(dataSource);
+    tableMapper = new TableMapper();
+
+    OffsetProcessor<BinlogFileOffset> offsetProcessor = new OffsetProcessor<>(offsetStore, this::handleRestart);
+
+    mySqlBinlogOffsetProcessor = new MySqlBinlogOffsetProcessor(offsetProcessor);
+
+    mySqlCdcProcessingStatusService = new MySqlCdcProcessingStatusService(dataSourceUrl, dbUserName, dbPassword);
+
+    meterRegistry.gauge("eventuate.cdc.mysql.event.unprocessed.offsets", offsetProcessor.getUnprocessedOffsetCount());
+
+    meterRegistry.gauge("eventuate.cdc.mysql.event.first.message.time", timeOfFirstMessage);
+    meterRegistry.gauge("eventuate.cdc.mysql.event.latest.message.time", timeOfLatestMessage);
+
+    messagePublishingTimer = meterRegistry.timer("eventuate.cdc.mysql.message.publishing.duration");
+    messageRealPublishingTimerLxm = meterRegistry.timer("eventuate.cdc.mysql.message.publishing.real.lxm.duration");
+    distributionSummaryRealTimeLxm = DistributionSummary.builder("eventuate.cdc.real.time.lxm").scale(100).register(meterRegistry);
+  }
   public MySqlBinaryLogClient(MeterRegistry meterRegistry,
                               String dbUserName,
                               String dbPassword,
@@ -345,6 +427,21 @@ public class MySqlBinaryLogClient extends DbLogClient {
     this.timeOfFirstMessage.compareAndSet(0, timeNow);
     this.timeOfLatestMessage.set(timeNow);
 
+    // 解析头部
+    HashMap<String, String> map = null;
+    try {
+      map = objectMapper.readValue(entry.getJsonColumn("headers"), HashMap.class);
+
+    } catch (JsonMappingException e) {
+      e.printStackTrace();
+    } catch (JsonProcessingException e) {
+      e.printStackTrace();
+    }
+    // 解析Span上线文
+    TraceContextOrSamplingFlags extracted = this.extractor.extract(map);
+    // 启动span
+    Span span = this.tracer.nextSpan(extracted).kind(Span.Kind.PRODUCER).name("[Lxm]cdc recv " + map.get("DESTINATION")).start();
+
     CompletableFuture<?> publishingFuture = null;
     try {
       publishingFuture = binlogEntryHandler.publish(entry);
@@ -364,6 +461,10 @@ public class MySqlBinaryLogClient extends DbLogClient {
         futureWithOffset.completeExceptionally(throwable);
         handleProcessingFailException(throwable);
       }
+
+      // 对被采样的Span发送停止操作
+      if (span != null && !span.isNoop())
+        span.finish();
     });
 
     mySqlBinlogOffsetProcessor.saveWriteRowsOffset(futureWithOffset);

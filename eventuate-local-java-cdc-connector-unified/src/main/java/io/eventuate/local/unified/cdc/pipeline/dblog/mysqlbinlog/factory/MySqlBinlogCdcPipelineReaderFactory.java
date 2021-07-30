@@ -1,5 +1,6 @@
 package io.eventuate.local.unified.cdc.pipeline.dblog.mysqlbinlog.factory;
 
+import brave.Tracing;
 import io.eventuate.coordination.leadership.LeaderSelectorFactory;
 import io.eventuate.common.jdbc.EventuateSchema;
 import io.eventuate.local.common.ConnectionPoolConfigurationProperties;
@@ -20,6 +21,7 @@ public class MySqlBinlogCdcPipelineReaderFactory extends CommonCdcPipelineReader
 
   private DebeziumOffsetStoreFactory debeziumOffsetStoreFactory;
   private OffsetStoreFactory offsetStoreFactory;
+  private Tracing tracing;
 
   public MySqlBinlogCdcPipelineReaderFactory(MeterRegistry meterRegistry,
                                              LeaderSelectorFactory leaderSelectorFactory,
@@ -35,6 +37,23 @@ public class MySqlBinlogCdcPipelineReaderFactory extends CommonCdcPipelineReader
 
     this.debeziumOffsetStoreFactory = debeziumOffsetStoreFactory;
     this.offsetStoreFactory = offsetStoreFactory;
+  }
+  public MySqlBinlogCdcPipelineReaderFactory(MeterRegistry meterRegistry,
+                                             LeaderSelectorFactory leaderSelectorFactory,
+                                             BinlogEntryReaderProvider binlogEntryReaderProvider,
+                                             OffsetStoreFactory offsetStoreFactory,
+                                             DebeziumOffsetStoreFactory debeziumOffsetStoreFactory,
+                                             ConnectionPoolConfigurationProperties connectionPoolConfigurationProperties,
+                                             Tracing tracing) {
+
+    super(meterRegistry,
+            leaderSelectorFactory,
+            binlogEntryReaderProvider,
+            connectionPoolConfigurationProperties);
+
+    this.debeziumOffsetStoreFactory = debeziumOffsetStoreFactory;
+    this.offsetStoreFactory = offsetStoreFactory;
+    this.tracing = tracing;
   }
 
   @Override
@@ -76,6 +95,7 @@ public class MySqlBinlogCdcPipelineReaderFactory extends CommonCdcPipelineReader
             readerProperties.getMonitoringRetryIntervalInMilliseconds(),
             readerProperties.getMonitoringRetryAttempts(),
             new EventuateSchema(readerProperties.getMonitoringSchema()),
-            readerProperties.getOutboxId());
+            readerProperties.getOutboxId(),
+            tracing);
   }
 }

@@ -1,5 +1,6 @@
 package io.eventuate.local.unified.cdc.pipeline.dblog.mysqlbinlog.configuration;
 
+import brave.Tracing;
 import io.eventuate.coordination.leadership.LeaderSelectorFactory;
 import io.eventuate.local.common.ConnectionPoolConfigurationProperties;
 import io.eventuate.local.unified.cdc.pipeline.common.BinlogEntryReaderProvider;
@@ -24,14 +25,16 @@ public class MySqlBinlogCdcPipelineReaderConfiguration extends CommonDbLogCdcDef
                                                                       BinlogEntryReaderProvider binlogEntryReaderProvider,
                                                                       OffsetStoreFactory offsetStoreFactory,
                                                                       DebeziumOffsetStoreFactory debeziumOffsetStoreFactory,
-                                                                      ConnectionPoolConfigurationProperties connectionPoolConfigurationProperties) {
+                                                                      ConnectionPoolConfigurationProperties connectionPoolConfigurationProperties,
+                                                                      Tracing tracing) {
 
     return new MySqlBinlogCdcPipelineReaderFactory(meterRegistry,
             leaderSelectorFactory,
             binlogEntryReaderProvider,
             offsetStoreFactory,
             debeziumOffsetStoreFactory,
-            connectionPoolConfigurationProperties);
+            connectionPoolConfigurationProperties,
+            tracing);
   }
 
   @Conditional(MySqlBinlogCondition.class)

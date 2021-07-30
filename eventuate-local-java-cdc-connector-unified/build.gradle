@@ -1,5 +1,15 @@
 
+apply plugin: "io.spring.dependency-management"
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.cloud:spring-cloud-sleuth:2.1.1.RELEASE"
+    }
+}
+
 dependencies {
+    compile 'org.springframework.cloud:spring-cloud-starter-sleuth:2.1.1.RELEASE'
+    compile 'org.springframework.cloud:spring-cloud-sleuth-zipkin:2.1.1.RELEASE'
+
     compile project(":eventuate-local-java-cdc-connector-mysql-binlog")
     compile project(":eventuate-local-java-cdc-connector-polling")
     compile project(":eventuate-local-java-cdc-connector-postgres-wal")
